@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
+import java.util.Scanner;
 
 import javax.imageio.ImageIO;
 import javax.swing.JFrame;
@@ -17,10 +18,12 @@ import javax.swing.JPanel;
 import org.apache.commons.io.FileUtils;
 import org.canova.api.records.reader.RecordReader;
 import org.canova.api.split.FileSplit;
+import org.canova.image.loader.ImageLoader;
 import org.canova.image.recordreader.ImageRecordReader;
 import org.deeplearning4j.datasets.canova.RecordReaderDataSetIterator;
 import org.deeplearning4j.datasets.iterator.DataSetIterator;
 import org.deeplearning4j.eval.Evaluation;
+import org.deeplearning4j.nn.api.Model;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.*;
 import org.deeplearning4j.nn.conf.layers.*;
@@ -28,6 +31,9 @@ import org.deeplearning4j.nn.conf.layers.setup.ConvolutionLayerSetup;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
+import org.deeplearning4j.plot.PlotFilters;
+import org.deeplearning4j.plot.iterationlistener.PlotFiltersIterationListener;
+import org.javacc.parser.OutputFile;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.factory.Nd4j;
@@ -42,7 +48,8 @@ public class CharacterRecognizer extends JFrame{
 	private static final String CONF_FILE = "/home/bmccutchon/git/dl4j-0.4-examples/conf.json";
 	private static final long serialVersionUID = 7725679730437636788L;
 	private static final Logger log = LoggerFactory.getLogger(CharacterRecognizer.class);
-	static BufferedImage img;	
+	static BufferedImage img;
+	private static Scanner reader = new Scanner(System.in);	
 	private static final int TRAIN = 1;
 	private static final int TEST = 2;
 	private static final int BOTH = TRAIN | TEST;
@@ -53,8 +60,34 @@ public class CharacterRecognizer extends JFrame{
 		//generateShapeImages(action);
 		//generateCharacterImages(action);
 		MultiLayerNetwork model = null;
-		if((action & TRAIN) != 0)  model = trainNetwork("/home/share/vision2014/NeuralNets/ShapesTrain/");
-		if((action & TEST)  != 0)  predict(model, "/home/share/vision2014/NeuralNets/ShapesTest/");
+		if((action & TRAIN) != 0)  model = trainNetwork("/home/share/vision2014/NeuralNets/ShapesTrainSmall/");
+		if((action & TEST)  != 0)  predict(model, "/home/share/vision2014/NeuralNets/ShapesTestSmall/");
+
+		if((action & TRAIN) != 0 && prompt("Save model? (y/n) ")) {
+			saveModel(model);
+		}
+	}
+
+	private static boolean prompt(String promptText) {
+		String res;
+		do {
+			System.out.print(promptText);
+			res = reader.nextLine();
+		} while (!res.matches("y|n"));
+		return res.equals("y");
+	}
+
+	private static void saveModel(MultiLayerNetwork model) throws IOException {
+		//Write the network parameters:
+		System.out.println("Saving model");
+		try(DataOutputStream dos = new DataOutputStream(Files.newOutputStream(
+				Paths.get(COEFF_FILE)))){
+			Nd4j.write(model.params(), dos);
+		}
+
+		//Write the network configuration:
+		FileUtils.write(new File(CONF_FILE),
+				model.getLayerWiseConfigurations().toJson());
 	}
 
 
@@ -62,10 +95,10 @@ public class CharacterRecognizer extends JFrame{
 	private static MultiLayerNetwork trainNetwork(String path) throws IOException, InterruptedException{
 		int nChannels = 1;
 		int outputNum = 5;
-		int batchSize = 16;
+		int batchSize = 64;
 		int nEpochs = 12;
 		int iterations = 1;
-		int seed = 123;
+		int seed = 124;
 
 		System.out.println("Training");
 
@@ -92,19 +125,19 @@ public class CharacterRecognizer extends JFrame{
 				.iterations(iterations)
 				.regularization(true).l2(0.0005)
 				.learningRate(0.01)
-				.weightInit(WeightInit.XAVIER)
+				.weightInit(WeightInit.RELU)
 				.optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
 				.updater(Updater.NESTEROVS).momentum(0.9)
 				.list(4)
-				.layer(0, new ConvolutionLayer.Builder(5, 5)
+				.layer(0, new ConvolutionLayer.Builder(10, 10)
 						.nIn(nChannels)
 						.stride(1, 1)
-						.nOut(20).dropOut(0.5)
+						.nOut(8).dropOut(0.5) // nOut(8) gives F1 0.51
 						.activation("relu")
 						.build())
 				.layer(1, new SubsamplingLayer.Builder(SubsamplingLayer.PoolingType.MAX)
-						.kernelSize(2,2)
-						.stride(2,2)
+						.kernelSize(3,3)
+						.stride(3,3)
 						.build())
 				.layer(2, new DenseLayer.Builder().activation("relu")
 						.nOut(500).build())
@@ -126,9 +159,76 @@ public class CharacterRecognizer extends JFrame{
 
 
 		//iter = new MnistDataSetIterator(batchSize,true,12345);
+		PlotFilters pf = new PlotFilters(null, new int[]{10, 10},
+				new int[]{0, 0}, new int[]{50, 50});
 
 		log.info("Train model....");
-		model.setListeners(new ScoreIterationListener(1));
+		model.setListeners(new ScoreIterationListener(1),
+				new PlotFiltersIterationListener(pf,
+						Arrays.asList("0_W"), 1) {
+			int iteration = 0;
+			File outputFile = new File("render.png");
+			final int PADDING = 2;
+			final int SCALE = 50;
+			@Override
+			public void iterationDone(Model model, int iteration) {
+				this.iteration = getIteration();
+				if(this.iteration > 0 && iteration % this.iteration == 0) {
+					List<String> variables = getVariables();
+					//PlotFilters filters = getFilters();
+
+					INDArray weights = model.getParam(variables.get(0));
+					weights = weights.transpose();
+					BufferedImage img = new BufferedImage(
+							weights.size(3)*weights.size(1) +
+								PADDING*(weights.size(3)-1),
+							weights.size(0),
+							BufferedImage.TYPE_BYTE_GRAY);
+					for (int z = 0; z < weights.size(3); z++) {
+						for (int y = 0; y < weights.size(1)+(z < weights.size(3)-1 ? PADDING : 0); y++) {
+							for (int x = 0; x < weights.size(0); x++) {
+								int pixVal = y < weights.size(1) ? (int)(128*(1+weights.getDouble(x, y, 0, z))) : 256;
+								img.setRGB((weights.size(1)+PADDING)*z+y, x,
+										 ((pixVal << 16) | (pixVal << 8) | pixVal));
+							}
+						}
+					}
+
+					// The next 10 lines are what it apparently takes to resize
+					// an image in Java.
+					int newWidth  = img.getWidth()*SCALE;
+					int newHeight = img.getHeight()*SCALE;
+					BufferedImage bigImg = new BufferedImage(
+							newWidth, newHeight, img.getType());
+
+					Graphics2D g = bigImg.createGraphics();
+					g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+							RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+					g.drawImage(img, 0, 0, newWidth, newHeight, 0, 0, img.getWidth(),
+							img.getHeight(), null);
+					g.dispose();
+
+					try {
+						ImageIO.write(bigImg, "png", outputFile);
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+
+					//filters.setInput(weights);
+					//filters.plot();
+					//INDArray plot = filters.getPlot();
+					//BufferedImage image = ImageLoader.toImage(plot);
+					//try {
+					//	outputFile.createNewFile();
+					//	ImageIO.write(image, "png", outputFile);
+					//} catch (IOException e) {
+					//	e.printStackTrace();
+					//}
+				}
+			}
+		});
+
 		for( int i=0; i < nEpochs; i++ ) {
 			while(iter.hasNext()){
 				DataSet next = iter.next(batchSize);
@@ -140,18 +240,6 @@ public class CharacterRecognizer extends JFrame{
 			iter.reset();
 		}
 		log.info("****************Example finished********************");
-
-
-
-		//Write the network parameters:
-		System.out.println("Saving model");
-		try(DataOutputStream dos = new DataOutputStream(Files.newOutputStream(
-				Paths.get(COEFF_FILE)))){
-			Nd4j.write(model.params(), dos);
-		}
-
-		//Write the network configuration:
-		FileUtils.write(new File(CONF_FILE), model.getLayerWiseConfigurations().toJson());
 
 		return model;
 	}
