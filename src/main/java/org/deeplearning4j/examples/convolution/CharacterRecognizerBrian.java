@@ -41,13 +41,13 @@ import org.nd4j.linalg.lossfunctions.LossFunctions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class CharacterRecognizer extends JFrame{
+public class CharacterRecognizerBrian extends JFrame{
 
 	static final List<String> LABELS = Arrays.asList("circle", "fillCircle", "fillSquare", "line", "square");
 	private static final String COEFF_FILE = "/home/bmccutchon/git/dl4j-0.4-examples/coefficients.bin";
 	private static final String CONF_FILE = "/home/bmccutchon/git/dl4j-0.4-examples/conf.json";
 	private static final long serialVersionUID = 7725679730437636788L;
-	private static final Logger log = LoggerFactory.getLogger(CharacterRecognizer.class);
+	private static final Logger log = LoggerFactory.getLogger(CharacterRecognizerBrian.class);
 	static BufferedImage img;
 	private static Scanner reader = new Scanner(System.in);	
 	private static final int TRAIN = 1;
@@ -307,7 +307,7 @@ public class CharacterRecognizer extends JFrame{
 		final int HEIGHT = 28;
 		final int WIDTH = 28;
 
-		CharacterRecognizer cd = new CharacterRecognizer();
+		CharacterRecognizerBrian cd = new CharacterRecognizerBrian();
 		panel = new JPanel();
 		//cd.setContentPane(panel);
 		cd.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -396,7 +396,7 @@ public class CharacterRecognizer extends JFrame{
 		final int HEIGHT = 28;
 		final int WIDTH = 28;
 
-		CharacterRecognizer cd = new CharacterRecognizer();
+		CharacterRecognizerBrian cd = new CharacterRecognizerBrian();
 		panel = new JPanel();
 		//cd.setContentPane(panel);
 		cd.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
